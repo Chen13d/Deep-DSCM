@@ -159,7 +159,7 @@ class Dataset_decouple_SR(Dataset):
             otf_cal = otf_confocal / otf_STED
             psf_cal = np.fft.fftshift(np.fft.fft2(otf_cal))
             psf_cal = np.abs(psf_cal)
-            psf_cal = tifffile.imread(r"D:\CQL\codes\microscopy_decouple_on_submission\models\cal_psf.tif")
+            #psf_cal = tifffile.imread(r"D:\CQL\codes\microscopy_decouple_on_submission\models\cal_psf.tif")
             fwhm = calculate_fwhm(psf_cal)
             print("FHWM of cal psf:", fwhm[0])
             psf_cal = psf_cal / np.sum(psf_cal)
