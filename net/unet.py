@@ -1,9 +1,5 @@
-import os
 import torch
-    
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.functional import Tensor
 
 
 class Attention_block(nn.Module):
@@ -264,5 +260,13 @@ class Unet_tri(nn.Module):
 if __name__ == "__main__":
     input = torch.randn((1,1,2048,2048), dtype=torch.float32).cuda()
     model = Unet(input_dim=1, num_classes=2, n_channels=64, upscale_factor=1).cuda()
-    output= model(input)
+    run_time_list = []
+    import time
+    with torch.no_grad():
+        for index in range(1000):
+            temp = time.time()
+            run_time_list.append(temp)
+            if index > 1:
+                print(run_time_list[-1] - run_time_list[-2])
+            output = model(input)
     print(output.size())

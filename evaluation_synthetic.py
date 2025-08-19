@@ -1,249 +1,352 @@
 import os, sys
-import argparse
-import pandas as pd
 from tqdm import tqdm
-cwd = os.getcwd()
+
 from options.options import parse
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-import torch
-if torch.cuda.is_available():        
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")        
-    print('-----------------------------Using GPU-----------------------------')
-from net.make_model import *
-from dataset.dataset_decouple_SR import *
-from skimage.metrics import structural_similarity as ssim_
-from loss.SSIM_loss import SSIM as SSIM_cri
+from dataset.read_prepared_data import *
+
 cwd = os.getcwd()
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+sys.path.append(parent_dir)
+
+from loss.SSIM_loss import SSIM
+from loss.NRMAE import nrmae
+from loss.FRC_cal import estimate_resolution_via_fft
+
+from net.make_model import *
+from dataset.gen_datasets import *
 
 
-class synthetic_dataset(Dataset):
-    def __init__(self, read_dir, num_file, num_org, org_list, device):
-        super(synthetic_dataset, self).__init__()
-        self.read_dir = read_dir
-        self.num_file = num_file
-        self.num_org = num_org
-        self.org_list = org_list
-        self.device = device
-        self.generate_read_dir()
+#options of .yml format in "options" folder
+opt_path = 'options/Synthetic_eval.yml'
 
-        self.transform = transforms.Compose([
-            transforms.ToTensor(), 
-            transforms.Lambda(lambda x: x.to(torch.float32))
-        ])
+# read options
+opt = parse(opt_path=os.path.join(cwd, opt_path))
+# set rank of GPU
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ['CUDA_VISIBLE_DEVICES'] = opt['gpu_rank']
 
-    def generate_read_dir(self):
-        self.Input_dir = os.path.join(self.read_dir, "Input")
-        self.GT_DS_dir = os.path.join(self.read_dir, "GT_DS")
-        self.GT_D_dir = os.path.join(self.read_dir, "GT_D")
-        self.GT_S_dir = os.path.join(self.read_dir, "GT_S")
+import torch
+if torch.cuda.is_available():
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print('-----------------------------Using GPU-----------------------------')
+else:
+    print('-----------------------------Using CPU-----------------------------')
 
-    def __len__(self):
-        return self.num_file
-    
-    
-    def map_values(self, image, new_min=0, new_max=1, min_val=None, max_val=None, percentile=100, index=0):
-        if index == 0:
-            # 计算指定百分位数的最小值和最大值
-            min_val = torch.quantile(image, (100 - percentile) / 100)
-            max_val = torch.quantile(image, percentile / 100)
-            # 避免除以零的情况
-            if max_val == min_val:
-                raise ValueError("最大值和最小值相等，无法进行归一化。")
-            
-        # 将图像值缩放到新范围
-        scaled = (image - min_val) * (new_max - new_min) / (max_val - min_val) + new_min
-        
-        # 可选：将值限制在新范围内
-        #scaled = torch.clamp(scaled, min=new_min, max=new_max)
-        
-        return scaled, min_val, max_val
-    
-    def norm_statistic(self, Input, std=None):        
-        mean = torch.mean(Input).to(self.device)
-        mean_zero = torch.zeros_like(mean).to(self.device)
-        std = torch.std(Input).to(self.device) if std == None else std
-        output = transforms.Normalize(mean_zero, std)(Input)
-        return output, mean_zero, std
-    
-    def __getitem__(self, index):
-        self.horizontal_flip = transforms.RandomHorizontalFlip(p=int(random()>0.5))
-        self.vertical_flip = transforms.RandomVerticalFlip(p=int(random()>0.5))   
-        Input = self.transform(self.vertical_flip(self.horizontal_flip(Image.open(os.path.join(self.Input_dir, f"{index+1}.tif"))))).to(self.device)
-        GT_DS_list = []
-        GT_D_list = []
-        for i in range(self.num_org):
-            GT_DS_list.append(self.transform(self.vertical_flip(self.horizontal_flip(Image.open(os.path.join(self.GT_DS_dir, f"{index+1}_{self.org_list[i]}.tif"))))).to(self.device))
-            #GT_D_list.append(self.transform(Image.open(os.path.join(self.GT_D_dir, f"{index+1}_{self.org_list[i]}.tif"))).to(self.device))
-        #GT_S = self.transform(Image.open(os.path.join(self.GT_S_dir, f"{index+1}.tif"))).to(self.device)
 
-        GT_DS = torch.concatenate([*GT_DS_list], dim=0)
-        #Input, GT_DS = rand_crop_dual(img1=Input, img2=GT_DS, size=512)
-        # normalizations
-        Input, Input_mean, Input_std = self.norm_statistic(Input)
-        GT_DS, GT_DS_mean, GT_DS_std = self.norm_statistic(GT_DS, Input_std)
-        # generate statistic dict for validation
-        statistic_dict = {
-            "Input_mean":Input_mean, "Input_std":Input_std
-            }
-        #return Input, GT_DS, GT_D, GT_S, statistic_dict
-        return Input, GT_DS, 0, 0, statistic_dict
 
-def gen_eval_dataloader(test_dir_HR, test_dir_LR, GT_tag_list, noise_level, factor_list, num_test, size, w0):
-    output_list = GT_tag_list
-    denoise = "None"
-    train_dir_GT_HR_list = []
-    test_dir_GT_HR_list = []
-    train_dir_GT_LR_list = []
-    test_dir_GT_LR_list = []
-    for i in range(len(GT_tag_list)):
-        test_dir_GT_HR_list.append(os.path.join(test_dir_HR, GT_tag_list[i]))
-        test_dir_GT_LR_list.append(os.path.join(test_dir_LR, GT_tag_list[i]))
 
-    eval_dataset = Dataset_decouple_SR(GT_dir_list_DS=test_dir_GT_HR_list, GT_dir_list_D=test_dir_GT_LR_list, up_factor=1, train_flag=False, num_file=num_test, noise_level=noise_level, w0=w0, size=size, factor_list=factor_list, 
-                        eval_flag=True, random_selection=False, crop_flag=False, flip_flag=False, device=device)
-    eval_dataloader = DataLoader(dataset=eval_dataset, shuffle=False, batch_size=1)
-    return eval_dataloader
-
-def nrmse(y_true, y_pred):
-    mse = torch.mean((y_true - y_pred) ** 2)  # 计算均方误差 (MSE)
-    rmse = torch.sqrt(mse)  # 计算根均方误差 (RMSE)
-    nrmse = rmse / (y_true.max() - y_true.min())  # 归一化 RMSE 得到 NRMSE
-    return nrmse
-
-def mae(file_index, org_index, y_true, y_pred, save_dir=False):
-    error_map = torch.abs((y_true - y_pred)) / (y_true.max() - y_true.min())
-    error_map_list = []
-    #for i in range(num_org):
-    error_map_cpu = to_cpu(error_map)
-    error_map_list.append(error_map_cpu)
-    if save_dir:
-        save_dir_file = os.path.join(save_dir, '{}_{}.tif'.format((file_index+1), (org_index+1)))
-        tifffile.imwrite(save_dir_file, error_map_cpu)
-    mae = torch.mean(error_map)
-    #mae = mae
-    return mae
-
-def evaluation(model, eval_dataloader, num_test, org_list, device='cuda', noise_level=0, save_dir=None, save_flag=True, combination_name=None): 
-    data_frame = pd.DataFrame()
-    l2_criterion = nn.MSELoss().to(device)
-    SSIM_criterion = SSIM_cri(device=device)
-    PCC_criterion = Pearson_loss().to(device)
-    model.train()
-    l1_loss_list = []
-    Pearson_list = [[] for i in range(len(org_list))]
-    PCC_list = [[] for i in range(len(org_list))]
-    eval_list = []
-    whole_Pearson = []
-    whole_mae = []
-    save_dir_error_map = save_dir.replace("raw_data", "error_map")
-    save_dir_ROI = save_dir.replace("raw_data", "ROI")
-    if save_flag:
-        check_existence(save_dir)
-        check_existence(save_dir_error_map)
-        check_existence(save_dir_ROI)
-    bar = tqdm(total=num_test)
-    mae_list = [[] for i in range(len(org_list))]
+def main():
+    toolbox = ToolBox(opt=opt)    
+    net_main = DSCM_with_dataset(opt, in_channels=1, num_classes=len(opt['category']), model_name_G=opt['net_G']['model_decouple_name'], 
+                        model_name_D=opt['net_D']['model_name'], initialize=opt['net_G']['initialize'], mode=opt['net_G']['mode_decouple'], 
+                        scheduler_name=opt['train']['scheduler'], device=device, weight_list=opt['net_G']['weight_decouple'], lr_G=opt['train']['lr_G'], lr_D=opt['train']['lr_D'])
+    net_main.net_G = torch.load(opt['net_G']['pretrain_dir'], weights_only=False)
+    #net_main.net_G.train()
+    # "old" = read data pairs, "new" = generate pseudo data pairs
+    if opt['read_version'] == "real-time":
+        val_loader = gen_degradation_dataloader(
+            GT_tag_list=opt['category'], 
+            noise_level=opt['noise_level'], 
+            w0_T=6.9, 
+            factor_list=opt['factor_list'], 
+            STED_resolution_dict=opt['resolution'], 
+            target_resolution=opt['degradation_resolution'], 
+            generate_FLIM=opt['FLIM'], 
+            degradation_method=opt['degradation_method'], 
+            average=opt['average'], 
+            read_LR=opt['read_LR'], 
+            num_file_train=opt['num_file_train'], 
+            num_file_val=opt['num_file_val'], 
+            size=opt['size'], 
+            num_workers=opt['num_workers'], 
+            cwd=cwd, 
+            device=device, 
+            real_time=True, 
+            eval_flag=True
+        )
+        num_val_image = opt['num_file_val']
+    elif opt['read_version'] == "prepared":
+        combination_name = "_".join(opt['category']) + f"_{opt['degradation_resolution']}" + f"_{opt['noise_level']}" + f"_{opt['average']}"
+        read_dir_train = os.path.join(r'data\prepared_data\train', combination_name)
+        read_dir_val = os.path.join(r'data\prepared_data\val', combination_name)
+        #train_loader, val_loader, num_tr  ain_image = gen_prepared_dataloader(read_dir_train=read_dir_train, read_dir_val=read_dir_val, num_file_train=opt['num_train'], 
+        #                                                        num_file_val=opt['num_test'], num_org=len(opt['category']), org_list=opt['category'], size=opt['size'], 
+        #                                                        batch_size=opt['train']['batch_size'], device=opt['device'])
+        train_dataset = prepared_dataset(read_dir=read_dir_train, num_file=opt['num_file_train'], num_org=len(opt['category']), org_list=opt['category'], size=opt['size'], device=opt['device'])
+        val_dataset = prepared_dataset(read_dir=read_dir_val, num_file=opt['num_file_val'], num_org=len(opt['category']), org_list=opt['category'], size=opt['size'], device=opt['device'])
+        if opt['num_workers']:
+            train_loader = DataLoader(train_dataset, shuffle=True, batch_size=opt['train']['batch_size'], num_workers=opt['num_workers'], persistent_workers=True, pin_memory=True)
+        else:
+            train_loader = DataLoader(train_dataset, shuffle=True, batch_size=opt['train']['batch_size'])
+        val_loader = DataLoader(val_dataset, shuffle=False, batch_size=1)
+        num_train_image = opt['num_file_train']
+    # generate folders for validation
+    toolbox.make_folders()
+    Input_list = []
+    GT_list = []
+    GT_D_list = []
+    sta_list = []
+    # list for validation loss
+    mae_list = []
+    ssim_list = []
+    SSIM_criterion = SSIM().to(device)
+    pearson_coef_list = []
+    print('======================== evaluating ========================')    
+    bar = tqdm(total=num_val_image)
+    # enumerate in test Dataloader 
     with torch.no_grad():
-        for batch_index, data in enumerate(eval_dataloader):
-            if noise_level > 0:
-                Input, GT_DS, GT_D, _, sta = data
-            else:
-                Input, GT_DS, GT_D, _, sta = data
-            Output = model(Input)
-            temp_Pearson = []
-            temp_mae = []
-            for org_index in range(len(org_list)):
-                # MAE
-                #l1_loss = mae(y_true=GT_DS[0,org_index,:,:], y_pred=Output[0,org_index,:,:], file_index=batch_index, org_index=org_index, save_dir=save_dir_error_map)
-                l1_loss = mae(y_true=GT_DS[0,org_index,:,:], y_pred=Output[0,org_index,:,:], file_index=batch_index, org_index=org_index)
-                #l1_loss = l2_criterion(Output[:,org_index:org_index+1,:,:], GT_DS[:,org_index:org_index+1,:,:])
-                mae_list[org_index].append(l1_loss.item())
-                # SSIM
-                '''SSIM_output = Output[:,org_index:org_index+1,:,:].detach()
-                SSIM_GT = GT_DS[:,org_index:org_index+1,:,:].detach()
-                temp_max = max(torch.max(SSIM_output).item(), torch.max(SSIM_GT).item())
-                SSIM_output = SSIM_output / temp_max * 1
-                SSIM_GT = SSIM_GT / temp_max * 1
-                SSIM_loss = SSIM_criterion(SSIM_output, SSIM_GT)
-                SSIM_list[org_index].append(SSIM_loss.item())'''
-                # Pearson
-                PCC_output = Output[:,org_index:org_index+1,:,:].detach()
-                PCC_GT = GT_DS[:,org_index:org_index+1,:,:].detach()
-                
-                PCC_loss = PCC_criterion(PCC_output, PCC_GT)
-                Pearson_list[org_index].append(PCC_loss.item())
-                temp_mae.append(l1_loss.item())
-                temp_Pearson.append(PCC_loss.item())
-
-            whole_mae.append(np.mean(temp_mae))
-            whole_Pearson.append(np.mean(temp_Pearson))
-            
-            if save_flag:
-                Input = to_cpu((Input * sta['Input_std'] + sta['Input_mean']).squeeze(0).permute(1,2,0))
-                Output = to_cpu((Output * sta['Input_std'] + sta['Input_mean']).squeeze(0).permute(1,2,0))
-                GT_DS = to_cpu((GT_DS * sta['Input_std'] + sta['Input_mean']).squeeze(0).permute(1,2,0))
-                #GT_D = to_cpu((GT_D * sta['Input_std'] + sta['Input_mean']).squeeze(0).permute(1,2,0))
-                plain = np.zeros_like(Input)
-                col_input = np.array((np.vstack((Input, plain)) / np.max(Input)) * np.max(GT_DS))
-                Input[Input<0] = 0
-                tifffile.imwrite(os.path.join(save_dir_ROI, f'{batch_index+1}_Input.tif'), np.array(Input))
-                for i in range(Output.shape[-1]):
-                    fake_temp = np.hstack((fake_temp, Output[:,:,i:i+1])) if i > 0 else Output[:,:,0:1]
-                    GT_temp = np.hstack((GT_temp, GT_DS[:,:,i:i+1])) if i > 0 else GT_DS[:,:,0:1]
-                    fake_temp[fake_temp<0] = 0
-                    GT_temp[GT_temp<0] = 0
-                    tifffile.imwrite(os.path.join(save_dir_ROI, f'{batch_index+1}_{org_list[i]}_GT.tif'), np.array(GT_DS[:,:,i:i+1]))
-                    tifffile.imwrite(os.path.join(save_dir_ROI, f'{batch_index+1}_{org_list[i]}_Output.tif'), np.array(Output[:,:,i:i+1]))
-                    #tifffile.imwrite(os.path.join(save_dir_ROI, f'{batch_index+1}_{org_list[i]}_GT_low.tif'), np.uint16(GT_D[:,:,i:i+1]))
-                col_output = np.vstack((GT_temp, fake_temp))
-                plot = np.hstack((col_input, col_output))
-                plot[plot < 0] = 0
-                tifffile.imwrite(os.path.join(save_dir, '{}.tif'.format(batch_index+1)), np.array(plot))
-            bar.set_description_str(
-                f'{batch_index+1} / {num_test}'
-            )
+        for batch_index, data in enumerate(val_loader):
+            Input, GT_DS, GT_D, _, _, _, sta = data
+            fake_main = net_main.feed_data(Input=Input, GT=GT_DS)
+            loss_main, pearson_coef = net_main.validation(mask=None)
+            Input = Input / (torch.max(Input) - torch.min(Input))
+            fake_main = fake_main / (torch.max(fake_main) - torch.min(fake_main))
+            GT_DS = GT_DS / (torch.max(GT_DS) - torch.min(GT_DS))
+            # append to list for epoches to save
+            Input_list.append(Input)
+            GT_list.append([fake_main, GT_DS])
+            sta_list.append(sta)
+            GT_D_list.append(to_cpu((GT_D*sta["Input_std"]).squeeze(0).permute(1,2,0)))
+            # cal NRMAE
+            mae_loss = nrmae(fake_main, GT_DS) 
+            # cal SSIM
+            for i in range(fake_main.size()[1]):
+                temp_fake = fake_main[:,i:i+1,:,:].detach()
+                temp_GT = GT_DS[:,i:i+1,:,:].detach()
+                temp_fake = temp_fake / torch.max(temp_fake)
+                temp_GT = temp_GT / torch.max(temp_GT)
+                SSIM_value = SSIM_criterion(temp_fake, temp_GT)
+            mae_list.append(mae_loss.item())
+            ssim_list.append(SSIM_value.item())
+            # PCC loss
+            pearson_coef_list.append(pearson_coef.item())
             bar.update(1)
-            if __name__ != "__main__":
-                plt.figure(1)
-                plt.imshow(plot)
-                plt.show()
-        data_dict = {}
-        for i in range(len(org_list)):
-            data_dict[f'mae_{org_list[i]}'] = mae_list[i]
-        for i in range(len(org_list)):
-            data_dict[f'PCC_{org_list[i]}'] = Pearson_list[i]
-        data_dict['mae_{}'.format(combination_name)] = whole_mae
-        data_dict['PCC_{}'.format(combination_name)] = whole_Pearson
-        data_frame = pd.DataFrame(data_dict)
-        #for i in range(len(org_list)):
-        #    data_frame = pd.concat([data_frame, pd.DataFrame(data_dict)], ignore_index=True)
-        #for i in range(len(org_list)):
-        #    data_frame = pd.concat([data_frame, pd.DataFrame({'SSIM': SSIM_list[i]})], ignore_index=True)
-        #print(os.path.join(save_dir.replace("\\raw_data", ""), '{}.csv'.format(noise_level)))
-        data_frame.to_csv(os.path.join(save_dir.replace("\\raw_data", ""), 'MAE_PCC.csv'))
-        bar.close()
-    for org_index in range(len(org_list)):
-        mae_list[org_index] = np.mean(mae_list[org_index])
-    return mae_list
+        pearson_aver = np.mean(pearson_coef_list)
+        pearson_coef_list.append(pearson_aver)
+        # save val stack and model
+        toolbox.gen_validation_images_with_dataset(data_list=[Input_list, GT_list, sta_list])
+        toolbox.save_val_list(name="main")
 
-if __name__ == "__main__":
-    cwd = os.getcwd()
-    train_dir_LR =  os.path.join(cwd, "data\\train_LR")
-    test_dir_LR = os.path.join(cwd, "data\\test_LR")
-    train_dir_HR = os.path.join(cwd, "data\\train_HR")
-    test_dir_HR = os.path.join(cwd, "data\\test_HR")
+        save_dir = r"C:\Users\18923\OneDrive\Work\DSRM_paper\synthetic_data_eval\Real_comparison\data"
+        check_existence(save_dir)
+        save_list = toolbox.val_list
+        size = opt['size']
+        for index in range(len(save_list)):
+            temp_img = save_list[index]
+            Input = temp_img[:size, :size]
+            for org_index in range(len(opt['category'])):
+                GT = temp_img[:size, (org_index+1)*size:(org_index+2)*size]
+                pred = temp_img[size:2*size, (org_index+1)*size:(org_index+2)*size]
+                tifffile.imwrite(os.path.join(save_dir, f"{index}_GT_{org_index}.tif"), np.uint8(GT))
+                tifffile.imwrite(os.path.join(save_dir, f"{index}_pred_{org_index}.tif"), np.uint8(pred))
+                # save GT_D for RSP RSE
+                temp_GT_D = GT_D_list[index][:,:,org_index]
+                tifffile.imwrite(os.path.join(save_dir, f"{index}_GT_D_{org_index}.tif"), np.uint16(temp_GT_D))
 
-    org_list = ['NPCs', 'Mito_inner_deconv', 'Membrane']
-    factor_list = [1, 1, 1]
-    noise_level = 0
-    eval_dir = os.path.join(cwd, 'data\\demo_synthetic_data\\NPCs_Mito_inner_Membrane')
-    model_dir = os.path.join(cwd, "models\\NPCs_Mito_inner_Membrane.pth")
-    #model_dir = r'D:\CQL\codes\microscopy_decouple\validation\DSRM_NPCs_Mitochondria_inner_Membrane_noise_level_0_Unet_re-distributed\weights\1\main_G.pth'
-    model = torch.load(model_dir)
-    save_dir = os.path.join(cwd, 'evaluation\\NPCs_Mito_inner_Membrane.pth')
-    num_eval = 1
-    eval_dataloader = gen_eval_dataloader(test_dir_HR=test_dir_HR, test_dir_LR=test_dir_LR, GT_tag_list=org_list, noise_level=noise_level, factor_list=factor_list, num_test=num_eval, size=512, w0=2.0)
-    
-    score_list = evaluation(model=model, eval_dataloader=eval_dataloader, num_test=num_eval, device=device, noise_level=noise_level, save_dir=save_dir, org_list=org_list)
-    print("NPCs_Mito_inner_Membrane", noise_level, score_list)
+            tifffile.imwrite(os.path.join(save_dir, f"{index}_Input.tif"), Input)
+        
+
+    bar.close()
+
+    print(np.mean(mae_list))
+    print(np.mean(ssim_list))
+    print(np.mean(pearson_coef_list))
+
+    top3_with_index = sorted(enumerate(ssim_list), key=lambda x: x[1], reverse=True)[:20]
+    # 提取值和索引
+    values = [v for i, v in top3_with_index]
+    indices = [i for i, v in top3_with_index]
+    print(values)   # [89, 45, 23]
+    print(indices)  # [4, 2, 3]
+
+    return mae_list, ssim_list, pearson_coef_list
+
+
+main()
+
+
+
+
+if 0:
+    import os, csv, numpy as np, pandas as pd
+
+    # ------------------------------------------------------------
+    # 1. 组合、文件名
+    # ------------------------------------------------------------
+    binary_paths = [
+        [0,   0, 0, 0], [0,   0, 0, 1], [0,   0, 1, 0], [0,   0, 1, 1],
+        [0,   1, 0, 0], [0,   1, 0, 1], [0,   1, 1, 0], [0,   1, 1, 1],
+        [0.1, 0, 0, 0], [0.1, 0, 0, 1], [0.1, 0, 1, 0], [0.1, 0, 1, 1],
+        [0.1, 1, 0, 0], [0.1, 1, 0, 1], [0.1, 1, 1, 0], [0.1, 1, 1, 1],
+    ]
+
+    base   = r"D:\CQL\codes\microscopy_decouple\Validation\DSCM_NPCs_Mito_inner_Membrane_228_0_1_DSCM_384_Unet"
+    suffix = r"_real-time_1000_epoches\weights\1\main_G.pth"
+
+    file_names   = []
+    group_names  = []           # <—— 存别名，用于最终列头
+
+    # 组装完整路径 & 别名
+    for b0, b1, b2, b3 in binary_paths:
+        file_names.append(
+            f"{base}_fea_loss_{b0}_SSIM_loss_{b1}_grad_loss_{b2}_GAN_loss_{b3}{suffix}"
+        )
+
+        # -------- 生成别名 --------
+        name = "MSE"
+        if b0 > 0:   name += "+Fea"
+        if b1 == 1:  name += "+SSIM"
+        if b2 == 1:  name += "+Grad"
+        if b3 == 1:  name += "+GAN"
+        group_names.append(name)
+
+    # ------------------------------------------------------------
+    # 2. 跑实验，收集 raw_rows
+    # ------------------------------------------------------------
+    raw_rows, summary_rows = [], []
+
+    for (b0, b1, b2, b3), fname, gname in zip(binary_paths, file_names, group_names):
+        print(fname)
+        opt["net_G"]["pretrain_dir"] = fname
+
+        MAE_out, SSIM_out, PCC_out = main()          # 列表或 float
+        # 保证都是 float 数组，去掉可能的引号
+        def clean(arr): return np.asarray([float(str(v).lstrip("'")) for v in np.atleast_1d(arr)])
+
+        MAE_arr, SSIM_arr, PCC_arr = map(clean, [MAE_out, SSIM_out, PCC_out])
+
+        summary_rows.append({
+            "fea_loss": b0, "SSIM_loss": b1, "grad_loss": b2, "GAN_loss": b3,
+            "config": fname, "group": gname,
+            "MAE_mean": MAE_arr.mean(), "SSIM_mean": SSIM_arr.mean(), "PCC_mean": PCC_arr.mean(),
+        })
+
+        for idx, (mae, ssim, pcc) in enumerate(zip(MAE_arr, SSIM_arr, PCC_arr)):
+            raw_rows.append({
+                "img_idx": idx,
+                "config":  fname,      # 用于 pivot
+                "MAE": mae, "SSIM": ssim, "PCC": pcc,
+            })
+
+    # ------------------------------------------------------------
+    # 3. 构建 MultiIndex 列（config→metric），再把最外层换成 group_name
+    # ------------------------------------------------------------
+    df_raw = pd.DataFrame(raw_rows)
+
+    # pivot 到 (img_idx × config)：
+    mae_tbl  = df_raw.pivot(index="img_idx", columns="config", values="MAE")
+    ssim_tbl = df_raw.pivot(index="img_idx", columns="config", values="SSIM")
+    pcc_tbl  = df_raw.pivot(index="img_idx", columns="config", values="PCC")
+
+    # 交错拼接：MAE→SSIM→PCC
+    pieces = []
+    for cfg in file_names:
+        pieces.extend([mae_tbl[cfg], ssim_tbl[cfg], pcc_tbl[cfg]])
+    df_wide = pd.concat(pieces, axis=1)
+
+    # MultiIndex 列：外层先用 file_names，占位
+    level0 = np.repeat(file_names, 3)
+    level1 = ["MAE", "SSIM", "PCC"] * len(file_names)
+    df_wide.columns = pd.MultiIndex.from_arrays([level0, level1])
+
+    # -------- 把外层路径替换成 group_names --------
+    path2group = dict(zip(file_names, group_names))
+    df_wide.columns = pd.MultiIndex.from_arrays(
+        [[path2group[p] for p in level0], level1]
+    )
+
+    # ------------------------------------------------------------
+    # 4. 保存
+    # ------------------------------------------------------------
+    save_dir = r"C:\Users\18923\Desktop\DSRM_paper_on_submission_material\DSRM paper\loss_experiment\csvs"
+    os.makedirs(save_dir, exist_ok=True)
+
+    df_wide.to_csv(
+        os.path.join(save_dir, "raw.csv"),
+        index=True,
+        float_format="%.18g",
+        quoting=csv.QUOTE_NONE,
+    )
+
+    print("✔ raw.csv 生成完毕（列头 = 分组别名 / MAE·SSIM·PCC）")
+
+
+
+
+if 0:
+    import os, numpy as np, pandas as pd
+
+    # ------------------------------------------------------------------
+    # 1. 组合、文件名
+    # ------------------------------------------------------------------
+    binary_paths = [
+        [0,   0, 0, 0], [0,   0, 0, 1], [0,   0, 1, 0], [0,   0, 1, 1],
+        [0,   1, 0, 0], [0,   1, 0, 1], [0,   1, 1, 0], [0,   1, 1, 1],
+        [0.1, 0, 0, 0], [0.1, 0, 0, 1], [0.1, 0, 1, 0], [0.1, 0, 1, 1],
+        [0.1, 1, 0, 0], [0.1, 1, 0, 1], [0.1, 1, 1, 0], [0.1, 1, 1, 1],
+    ]
+    base = "D:\\CQL\\codes\\microscopy_decouple\\validation\\DSCM_NPCs_Mito_inner_Membrane_228_0_1_DSCM_384_Unet"
+    suffix = "_real-time_1000_epoches\weights\\1\\main_G.pth"
+    file_names = [
+        f"{base}_fea_loss_{b0}_SSIM_loss_{b1}_grad_loss_{b2}_GAN_loss_{b3}{suffix}"
+        for b0, b1, b2, b3 in binary_paths
+    ]
+
+    summary_rows, raw_rows = [], []
+
+    for (b0, b1, b2, b3), fname in zip(binary_paths, file_names):
+        print(fname)
+        opt["net_G"]["pretrain_dir"] = fname
+        MAE_out, SSIM_out, PCC_out = main()          # ← 列表或 float
+
+        # 统一转 ndarray
+        MAE_arr  = np.atleast_1d(MAE_out).astype(float)
+        SSIM_arr = np.atleast_1d(SSIM_out).astype(float)
+        PCC_arr  = np.atleast_1d(PCC_out).astype(float)
+
+        # —— ① summary 行
+        summary_rows.append({
+            "fea_loss": b0, "SSIM_loss": b1, "grad_loss": b2, "GAN_loss":  b3,
+            "config":   fname,
+            "MAE_mean": MAE_arr.mean(),  "SSIM_mean": SSIM_arr.mean(),  "PCC_mean": PCC_arr.mean(),
+        })
+
+        # —— ② raw 行（每张图像一行）
+        for idx, (mae, ssim, pcc) in enumerate(zip(MAE_arr, SSIM_arr, PCC_arr)):
+            raw_rows.append({
+                "img_idx": idx,
+                "config":  fname,
+                "MAE": mae,
+                "SSIM": ssim,
+                "PCC": pcc,
+            })
+
+    # 2. 生成 raw.csv —— 第一层列是 config，第二层列是 MAE/SSIM/PCC
+    # ------------------------------------------------------------------
+    df_raw = pd.DataFrame(raw_rows)          # raw_rows 为循环里收集的原始行
+    # ① 先把三个指标各自 pivot 成 (img_idx × config) 形状
+    mae_tbl  = df_raw.pivot(index="img_idx", columns="config", values="MAE")
+    ssim_tbl = df_raw.pivot(index="img_idx", columns="config", values="SSIM")
+    pcc_tbl  = df_raw.pivot(index="img_idx", columns="config", values="PCC")
+
+    # ② 组装成 MultiIndex 列：
+    #    外层：config，内层：metric，且顺序保证 MAE→SSIM→PCC
+    pieces = []
+    for cfg in file_names:                   # file_names = config 顺序列表
+        pieces.append(mae_tbl[cfg])
+        pieces.append(ssim_tbl[cfg])
+        pieces.append(pcc_tbl[cfg])
+
+    df_wide = pd.concat(pieces, axis=1)
+    # 重建列索引 —— level 0 为 cfg，level 1 为 metric
+    level0 = np.repeat(file_names, 3)                 # AAA,AAA,AAA,BBB,BBB,BBB,…
+    level1 = ["MAE", "SSIM", "PCC"] * len(file_names) # MAE,SSIM,PCC,MAE,SSIM,PCC…
+    df_wide.columns = pd.MultiIndex.from_arrays([level0, level1])
+
+    # ③ 保存；pandas 会写两行 header
+    save_dir = r"C:\Users\18923\Desktop\DSRM_paper_on_submission_material\DSRM paper\loss_experiment\csvs"
+    os.makedirs(save_dir, exist_ok=True)
+    df_wide.to_csv(os.path.join(save_dir, "raw.csv"), index=True)
+
+    print("✔ raw.csv 生成完毕（第一行是 config，第二行是 MAE/SSIM/PCC）")
+

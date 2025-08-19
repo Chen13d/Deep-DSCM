@@ -1,0 +1,74 @@
+########################################################
+gpu_rank: '0'
+device: cuda:0
+num_workers: 4
+size: 512
+up_factor: 1
+degradation_resolution: 228
+noise_level: 0
+average: 1
+degradation_method: blur-composite-noise
+denoise: train
+FLIM: False
+read_LR: True
+read_version: "real-time"
+net_G:
+  initialize: True
+  input_channels: 1
+  model_decouple_name: Unet
+  model_decouple_pretrain: False
+  # pixel loss fea_loss feq_loss grad_loss corr_loss adv_loss
+  weight_decouple: [0, 0, 0, 0, 0, 0]
+  mode_decouple: GAN
+  pretrain_dir: D:\CQL\codes\microscopy_decouple\validation\DSCM_Mito_228_0.070_4_DSCM_384_Unet_fea_loss_0.1_SSIM_loss_1_grad_loss_0_GAN_loss_1_real-time_1000_epoches\weights\1\main_G.pth
+  # D:\CQL\codes\microscopy_decouple\validation\DSCM_Mito_real_data_DSCM_384_Unet_fea_loss_0.01_SSIM_loss_1_grad_loss_0_GAN_loss_1_real-time_1000_epoches\weights\1\main_G.pth
+  # D:\CQL\codes\microscopy_decouple\validation\DSCM_NPCs_real_data_DSCM_384_Unet_fea_loss_0.01_SSIM_loss_1_grad_loss_0_GAN_loss_1_real-time_1000_epoches\weights\1\main_G.pth
+  # D:\CQL\codes\microscopy_decouple\validation\DSCM_Micro_real_data_DSCM_384_Unet_fea_loss_0.01_SSIM_loss_1_grad_loss_0_GAN_loss_1_real-time_1000_epoches\weights\1\main_G.pth
+  # D:\CQL\codes\microscopy_decouple\validation\DSCM_Micro_240_0.070_4_DSCM_384_Unet_fea_loss_0.1_SSIM_loss_1_grad_loss_0_GAN_loss_1_real-time_1000_epoches\weights\1\main_G.pth
+  
+  
+net_D:
+  model_name: UnetD 
+  pretrain_dir_1: None 
+  pretrain_dir_2: None
+  
+
+num_file_train: 300
+num_file_val: 200
+train:
+  mean: [0.0]
+  std: [50.0]
+  lr_G: 0.00001
+  lr_D: 0.0000001
+  index_per_D: 2
+  epoches: 1000
+  epoches_per_val: 10
+  epoches_per_save: 10
+  batch_size: 1
+  num_iter: 1
+  optimizer: Adam
+  scheduler: CosineAnnealingLR
+
+resolution:
+  Micro: 85.93
+  Mito: 87.09
+  Lyso: 91.97
+  Membrane: 81.24
+  NPCs: 85.92
+  Mito_inner: 82.88
+  Mito_inner_deconv: 81.19
+
+
+train_dir_LR: data\train_LR
+test_dir_LR: data\test_LR
+train_dir_HR: data\train_HR #_deconv
+test_dir_HR: data\test_HR #_deconv
+
+validation_dir: D:\CQL\codes\microscopy_decouple\evaluation\synthetic
+validation_list: ['loss_plots', 'weights', 'excels', 'validation_images', 'train_image']
+validation_date: eval
+
+
+category: ['Mito']
+factor_list: [1]
+########################################################

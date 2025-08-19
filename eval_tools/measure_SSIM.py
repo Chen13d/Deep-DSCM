@@ -5,7 +5,7 @@ from skimage.metrics import structural_similarity as ssim_
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 sys.path.append(parent_dir)
 from utils import *
-from loss.SSIM_loss import *
+from SSIM_loss import *
 
 device = 'cuda'
 ssim_criterion = SSIM(device=device)

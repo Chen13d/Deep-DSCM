@@ -60,4 +60,3 @@ For training with your own dataset, please adapt the notebook accordingly.
 📜 License
 
 This project is for academic research only. Please contact the authors for commercial usage.
-

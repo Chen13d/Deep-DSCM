@@ -79,6 +79,62 @@ def resize(input, size):
     output = resized * m1 / m2
     return np.uint16(output)
 
+def resize_image_bicubic(image_np, new_size):
+    """
+    Resize a numpy image using bicubic interpolation without changing the value range.
+    
+    Parameters:
+    - image_np: np.ndarray, input image (H, W) or (H, W, C)
+    - new_size: tuple, (new_width, new_height)
+
+    Returns:
+    - resized_np: np.ndarray, resized image with same value range
+    """
+    value_min = image_np.min()
+    value_max = image_np.max()
+
+    # Normalize to 0~255 for PIL compatibility
+    img_norm = (image_np - value_min) / (value_max - value_min + 1e-8) * 255
+    img_uint8 = img_norm.astype(np.uint8)
+
+    # Convert to PIL Image
+    if image_np.ndim == 2:
+        img_pil = Image.fromarray(img_uint8, mode='L')
+    elif image_np.ndim == 3 and image_np.shape[2] == 3:
+        img_pil = Image.fromarray(img_uint8, mode='RGB')
+    else:
+        raise ValueError("Unsupported image shape")
+
+    # Resize using BICUBIC
+    img_resized = img_pil.resize(new_size, resample=Image.BICUBIC)
+
+    # Convert back to numpy and rescale to original range
+    resized_np = np.asarray(img_resized).astype(np.float32)
+    resized_np = resized_np / 255.0 * (value_max - value_min) + value_min
+
+    return resized_np
+
+def upscale_lanczos(img, scale):
+    """
+    使用 Lanczos4 内核上采样，兼顾锐利度和抑制振铃。
+    
+    参数
+    ----
+    img   : H×W×C 或 H×W ndarray，uint8 / float32 都可
+    scale : 放大倍数，可为 2、4 或任意正数
+    
+    返回
+    ----
+    up_img: (H*scale)×(W*scale) same dtype as input
+    """
+    if scale <= 1:
+        raise ValueError("scale 必须 > 1 才是上采样")
+    h, w = img.shape[:2]
+    # INTER_LANCZOS4 内核支撑为 8，能更好抑制振铃
+    up_img = cv2.resize(img, (int(w * scale), int(h * scale)),
+                        interpolation=cv2.INTER_LANCZOS4)
+    return up_img
+
 
 def to_cpu(input):
     input = Tensor.cpu(input)

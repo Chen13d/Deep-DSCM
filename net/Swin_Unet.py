@@ -1,5 +1,3 @@
-import os
-
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint as checkpoint
@@ -754,13 +752,6 @@ class SwinTransformerSys(nn.Module):
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    if torch.cuda.is_available():
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")        
-        #device_2 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        #device_3 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print('-----------------------------Using GPU-----------------------------')
     size = 576
     in_channels = 1
     num_classes = 3

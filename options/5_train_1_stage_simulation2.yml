@@ -1,0 +1,61 @@
+########################################################
+name: train
+gpu_rank: '0'
+device: cuda:0
+output_mode: 'single'
+size: 256
+up_factor: 1
+degeneration_w0: 5.0
+noise_level: 2
+denoise: train
+read_LR: False
+read_version: "prepared"
+net_G:
+  initialize: True
+  input_channels: 1
+  model_decouple_name: Unet
+  model_decouple_pretrain: False
+  # pixel loss fea_loss feq_loss grad_loss corr_loss adv_loss
+  weight_decouple: [1, 0, 0, 1, 0, 1]
+  mode_decouple: GAN
+  pretrain_dir: None 
+  
+net_D:
+  model_name: UnetD 
+  pretrain_dir_1: None 
+  pretrain_dir_2: None
+  
+
+num_train: 300
+num_test: 50
+train:
+  mean: [0.0]
+  std: [50.0]
+  lr_G: 0.00001
+  lr_D: 0.0000001
+  index_per_D: 2
+  epoches: 500
+  epoches_per_val: 20
+  epoches_per_save: 20
+  batch_size: 1
+  num_iter: 1
+  optimizer: Adam
+  scheduler: CosineAnnealingLR
+
+train_dir_LR: data\train_LR
+test_dir_LR: data\test_LR
+train_dir_HR: data\train_HR #_deconv
+test_dir_HR: data\test_HR #_deconv
+
+validation_dir: validation
+validation_list: ['loss_plots', 'weights', 'excels', 'validation_images', 'train_image']
+validation_date: DSCM_simulation_Line_145255_Ellipse_200255_grad_loss_sigma_5.0_level_2
+test_list: []
+test_read_list: None
+test_save_dir: None
+
+category: ['Lines', 'Ellipses']
+output_type: 'split'
+output_list: ['Lines', 'Ellipses']
+factor_list: [1, 1]
+########################################################

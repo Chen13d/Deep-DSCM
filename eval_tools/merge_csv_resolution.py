@@ -1,5 +1,6 @@
 import os, sys
 import pandas as pd
+from tqdm import tqdm
 
 # add parent dir for "utils.py"
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -64,11 +65,59 @@ def merge_csv(read_dir, save_dir, Org_list, name_list, combination_list, noise_l
         data_dict[f'{name_list[i]}'] = data_list[i]
     data_frame = pd.DataFrame(data_dict)
     data_frame.to_csv(save_dir, index=False)
-        
+
+
+def arrange_csv_from_single_organelle(read_dir, save_dir):
+    file_list = os.listdir(read_dir)
+    file_list = natsort.natsorted(file_list)
+    #name_list = []
+    rFRC_value_list = []
+    mean_rFRC_list = []
+    min_rFRC_list = []
+    max_rFRC_list = []
+    # read files
+    for i in tqdm(range(0, len(file_list)), desc="Processing files"):
+    #for i in range(len(file_list)):
+        try:
+            file_dir = os.path.join(read_dir, file_list[i])
+            df = pd.read_csv(file_dir)
+            mean_FRC = df["Mean FRC (nm)"].values[0]
+            rFRC_value = df["rFRC value"].values[0]
+            min_FRC = df["Min FRC (nm)"].values[0]
+            max_FRC = df["Max FRC (nm)"].values[0]
+            if rFRC_value >=0.01 and max_FRC < 200:
+            #if 1:
+                mean_rFRC_list.append(mean_FRC)
+                rFRC_value_list.append(rFRC_value)
+                min_rFRC_list.append(min_FRC)
+                max_rFRC_list.append(max_FRC)
+                print(i)
             
+        except:
+            print("error in {}".format(i))
 
+    
+    # 根据rFRC_value_list的值对所有列表进行排序
+    sorted_lists = sorted(zip(rFRC_value_list, mean_rFRC_list, min_rFRC_list, max_rFRC_list), key=lambda x: x[0])
+    # 解压已排序的列表
+    rFRC_value_list, mean_rFRC_list, min_rFRC_list, max_rFRC_list = zip(*sorted_lists)
+     # 你可以在这里保存排序后的结果，示例是保存为一个新的CSV文件
+    result_df = pd.DataFrame({
+        'rFRC value': rFRC_value_list,
+        'Mean FRC (nm)': mean_rFRC_list,
+        'Min FRC (nm)': min_rFRC_list,
+        'Max FRC (nm)': max_rFRC_list
+    })
+    print(np.mean(mean_rFRC_list[0:20]))
+    result_df.to_csv(save_dir, index=False)
 
+    
 if __name__ == "__main__":
+    if 1:
+        read_dir = r"D:\CQL\codes\microscopy_decouple\data\STED_data\resolution_measurement\Mito_inner\csv"
+        save_dir = r"D:\CQL\codes\microscopy_decouple\data\STED_data\resolution_measurement\Mito_inner\arranged.csv" 
+        arrange_csv_from_single_organelle(read_dir=read_dir, save_dir=save_dir)
+
     if 0:
         noise_list = [0]
         combination_list = ['Microtubules_Lysosome', 'Mitochondria_outer_Lysosome', 'Microtubules_Mitochondria_outer', 'Microtubules_Mitochondria_outer_Lysosome']
@@ -86,7 +135,7 @@ if __name__ == "__main__":
         read_dir = r'D:\CQL\codes\microscopy_decouple\evaluation\DSRM\DSRM_synthetic_data'
         save_dir = r'D:\CQL\codes\microscopy_decouple\evaluation\DSRM\DSRM_synthetic_data\Resolution.csv'
         merge_csv(read_dir=read_dir, save_dir=save_dir, Org_list=org_list, name_list=name_list, combination_list=combination_list)
-    if 1:
+    if 0:
         noise_list = [0]
         combination_list = ['CCPS_ER', 'CCPS_Micro', 'CCPS_F-actin', 'ER_Micro', 'CCPS_ER_Micro']
         org_list = [['CCPS', 'ER'], ['CCPS', 'Micro'], ['CCPS', 'F-actin'], ['ER', 'Micro'], ['CCPS', 'ER', 'Micro']]
