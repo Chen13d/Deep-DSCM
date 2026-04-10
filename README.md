@@ -1,13 +1,36 @@
-Deep-DSCM
+# DESM (Deep-DSCM)
 
-Multi-colour super-resolution imaging in single-channel confocal microscopy by deep learning
+Self-supervised single-channel multiplexed super-resolution microscopy
 
-This repository provides the demo code for the paper:
-Deep-DSCM: multi-colour super-resolution imaging in single-channel confocal microscopy by deep learning
+This repository provides the PyTorch implementation for our DESM framework, a self-supervised deep learning method for joint channel decoupling and super-resolution reconstruction from single-channel confocal microscopy data.
 
-📄 Citation
+> Note: some scripts and file names in this repository still keep the historical `DSCM` naming. They correspond to the current DESM codebase.
 
-Authors: Qinglin Chen<sup>1,†</sup>, Luwei Wang<sup>1,†</sup>, Jia Li<sup>1</sup>, Dan Shao<sup>2</sup>, Xiaoyu Weng<sup>1</sup>, Liwei Liu<sup>1</sup>, Dayong Jin<sup>2,3,</sup>, Junle Qu<sup>1,</sup>
+---
+
+## Overview
+
+DESM is designed for multiplexed super-resolution microscopy from single-channel laser-scanning microscopy data.
+
+The framework supports two modes:
+
+- **DESM-IO**: intensity-only mode for standard confocal data
+- **DESM-IL**: intensity-lifetime mode for FLIM-assisted reconstruction
+
+The codebase includes:
+
+- training on simulation / prepared datasets
+- evaluation on synthetic and semi-synthetic data
+- FLIM-assisted inference and evaluation
+- visualization scripts for reconstructed results
+
+---
+
+## Paper
+
+**Self-supervised single-channel multiplexed super-resolution microscopy**
+
+Qinglin Chen<sup>1,†</sup>, Luwei Wang<sup>1,†</sup>, Min Yi<sup>1</sup>, Jia Li<sup>1</sup>, Dan Shao<sup>2</sup>, Xiaoyu Weng<sup>1</sup>, Liwei Liu<sup>1</sup>, Dayong Jin<sup>2,3,*</sup>, Junle Qu<sup>1,*</sup>
 
 <sup>1</sup> State Key Laboratory of Radio Frequency Heterogeneous Integration (Shenzhen University) & Key Laboratory of Optoelectronic Devices and Systems, College of Physics and Optoelectronic Engineering, Shenzhen University, Shenzhen 518060, China
 
@@ -15,48 +38,21 @@ Authors: Qinglin Chen<sup>1,†</sup>, Luwei Wang<sup>1,†</sup>, Jia Li<sup>1<
 
 <sup>3</sup> Zhejiang Provincial Engineering Research Center for Organelles Diagnostics and Therapy, Eastern Institute of Technology, Ningbo 315200, China
 
-† Equal contribution: Qinglin Chen, Luwei Wang
+† Equal contribution  
 * Corresponding authors: dayong.jin@eitech.edu.cn, jlqu@szu.edu.cn
 
-⚙️ Environment
+---
 
-Python 3.8.20
+## Environment
 
-CUDA 12.0
+The current codebase is tested with the following software environment:
 
-PyTorch 2.0.1
+- Python 3.8
+- PyTorch 1.10.1
+- torchvision 0.11.2
+- CUDA-compatible GPU recommended
 
-📂 File Structure
+Install dependencies with:
 
-DSCM-demo.ipynb → Main entry point for:
-
-Validation on synthetic data
-
-Testing on real data
-
-🚀 Quick Start
-
-Clone this repository:
-
-git clone https://github.com/your-repo/Deep-DSCM.git
-cd Deep-DSCM
-
-
-Install dependencies:
-
+```bash
 pip install -r requirements.txt
-
-
-Run the demo notebook:
-
-jupyter notebook DSCM-demo.ipynb
-
-📌 Notes
-
-This demo includes both synthetic dataset validation and real microscopy data testing.
-
-For training with your own dataset, please adapt the notebook accordingly.
-
-📜 License
-
-This project is for academic research only. Please contact the authors for commercial usage.
