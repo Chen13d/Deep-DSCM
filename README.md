@@ -13,7 +13,7 @@ DESM is designed for multiplexed super-resolution microscopy from single-channel
 The framework supports two modes:
 
 - **DESM-IO**: intensity-only mode for standard confocal data
-- **DESM-IL**: intensity-lifetime mode for FLIM-assisted reconstruction
+- **DESM-IL**: intensity-lifetime mode for lifetime (TCSPC)-assisted reconstruction
 
 The codebase includes:
 
