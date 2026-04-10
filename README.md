@@ -48,8 +48,8 @@ Qinglin Chen<sup>1,†</sup>, Luwei Wang<sup>1,†</sup>, Min Yi<sup>1</sup>, Ji
 The current codebase is tested with the following software environment:
 
 - Python 3.8
-- PyTorch 1.10.1
-- torchvision 0.11.2
+- PyTorch 2.0.1
+- torchvision 0.15.2
 - CUDA-compatible GPU recommended
 
 Install dependencies with:
