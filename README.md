@@ -1,4 +1,4 @@
-# DESM (Deep-DSCM)
+# DESM (Decoupling and super-resolution microscopy)
 
 Self-supervised single-channel multiplexed super-resolution microscopy
 
