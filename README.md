@@ -2,7 +2,8 @@
 
 Self-supervised single-channel multiplexed super-resolution microscopy
 
-This repository provides the PyTorch implementation for our DESM framework, a self-supervised deep learning method for joint channel decoupling and super-resolution reconstruction from single-channel confocal microscopy data.
+This repository provides the PyTorch implementation for our previous DESM framework, please check our newest version via https://github.com/Chen13d/DESM. 
+A self-supervised deep learning method for joint channel decoupling and super-resolution reconstruction from single-channel confocal microscopy data.
 
 ---
 
